@@ -4,6 +4,7 @@
 
 > 2026-10-31 在 Windows 11 + Docker Desktop + RTX 3060 6GB 上實測可用（cognee 1.6.6 / cognee-mcp 0.5.7）。
 > 📖 **完整步驟、設計理由、踩坑紀錄：[docs/GUIDE.md](docs/GUIDE.md)**
+> 🏢 **企業版設計（100+ 人、K8s、權限控管、自建 LLM、資料不外洩）：[docs/ENTERPRISE_DESIGN.md](docs/ENTERPRISE_DESIGN.md)**
 
 ## 架構
 
