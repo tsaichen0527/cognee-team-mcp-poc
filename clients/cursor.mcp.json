@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "cognee": {
+      "url": "http://KB_HOST:8001/mcp"
+    }
+  }
+}

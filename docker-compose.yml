@@ -1,0 +1,116 @@
+# Cognee 多人共享知識庫 POC
+#   postgres   : PostgreSQL 17 + pgvector（帳號/權限/metadata + 向量）
+#   cognee     : Cognee 後端 API（唯一擁有 graph 檔案的 process）
+#   cognee-mcp : 共用 MCP endpoint（API mode，轉送到 cognee 後端）
+#   ollama     : 本機免費 LLM（profile: ollama，需 NVIDIA GPU）
+#
+# 啟動順序請看 docs/GUIDE.md：先起 postgres + cognee，跑 init 腳本拿到 API key，再起 cognee-mcp。
+
+name: cognee-poc
+
+x-cognee-env: &cognee-env
+  SYSTEM_ROOT_DIRECTORY: /cognee-storage/system
+  DATA_ROOT_DIRECTORY: /cognee-storage/data
+  # 模型快取放在映像內已屬於 uid 1000 的目錄；另開 named volume 會是 root 擁有 → Permission denied
+  HF_HOME: /cognee-storage/system/hf-cache
+  LOG_LEVEL: INFO
+  ENV: local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cognee
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?請在 .env 設定 DB_PASSWORD}
+      POSTGRES_DB: cognee_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cognee -d cognee_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  cognee:
+    image: cognee/cognee:${COGNEE_TAG:-main}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *cognee-env
+      DB_PROVIDER: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: cognee_db
+      DB_USERNAME: cognee
+      # access control 開啟時 pgvector 必須明確給連線資訊，不會自動沿用 DB_*
+      VECTOR_DB_PROVIDER: pgvector
+      VECTOR_DATASET_DATABASE_HANDLER: pgvector_shared
+      VECTOR_DB_HOST: postgres
+      VECTOR_DB_PORT: "5432"
+      VECTOR_DB_NAME: cognee_db
+      VECTOR_DB_USERNAME: cognee
+      VECTOR_DB_PASSWORD: ${DB_PASSWORD}
+      GRAPH_DATABASE_PROVIDER: ladybug
+      ENABLE_BACKEND_ACCESS_CONTROL: "true"
+    volumes:
+      - cognee_system:/cognee-storage/system
+      - cognee_data:/cognee-storage/data
+      - ./scripts:/poc-scripts:ro
+      - ./sample-data:/poc-sample-data:ro
+    ports:
+      # 只綁本機；團隊成員走 MCP，不直接碰後端（後端的註冊 API 無法關閉）
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  cognee-mcp:
+    image: cognee/cognee-mcp:${COGNEE_MCP_TAG:-main}
+    restart: unless-stopped
+    environment:
+      TRANSPORT_MODE: http
+      API_URL: http://cognee:8000
+      # 先執行 scripts/init_kb.py 取得 key 填入 .env（用 :? 會連 postgres/cognee 都起不來，所以這裡允許空值）
+      API_TOKEN: ${COGNEE_MCP_API_KEY:-}
+      COGNEE_API_AUTH_SCHEME: x-api-key
+      # 關掉「每個 client 各寫一個 dataset」，所有人預設寫入同一個共享 dataset
+      COGNEE_MCP_AGENT_SCOPED: "false"
+      # 允許用區網 IP / 主機名連線（否則會回 421 Misdirected Request）
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      LOG_LEVEL: INFO
+    ports:
+      - "${MCP_BIND:-0.0.0.0}:8001:8000"
+    depends_on:
+      cognee:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_TAG:-latest}
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      # 模型常駐 GPU：冷啟動載入要 ~70s，會超過 cognee 的 30s LLM 連線測試
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_CONTEXT_LENGTH: "8192"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  pgdata:
+  cognee_system:
+  cognee_data:
+  ollama:
