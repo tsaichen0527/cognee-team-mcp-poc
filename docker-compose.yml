@@ -61,6 +61,8 @@ services:
     ports:
       # 只綁本機；團隊成員走 MCP，不直接碰後端（後端的註冊 API 無法關閉）
       - "127.0.0.1:8000:8000"
+      # cognee-ui 共用本容器網路（見下方），所以 UI 的 port 開在這裡
+      - "127.0.0.1:3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,6 +89,19 @@ services:
       LOG_LEVEL: INFO
     ports:
       - "${MCP_BIND:-0.0.0.0}:8001:8000"
+    depends_on:
+      cognee:
+        condition: service_healthy
+
+  cognee-ui:
+    image: cognee/cognee-ui:${COGNEE_UI_TAG:-latest}
+    profiles: ["ui"]
+    restart: unless-stopped
+    # COGNEE_BACKEND_URL 同時給瀏覽器與 UI 容器內的 server route 使用；
+    # 共用 cognee 的網路，兩邊的 localhost:8000 才都會指到後端
+    network_mode: "service:cognee"
+    environment:
+      COGNEE_BACKEND_URL: http://localhost:8000
     depends_on:
       cognee:
         condition: service_healthy

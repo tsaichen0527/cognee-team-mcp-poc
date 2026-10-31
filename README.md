@@ -53,7 +53,7 @@ claude mcp add --transport http cognee http://<主機IP>:8001/mcp --scope user
 ## 專案結構
 
 ```text
-├── docker-compose.yml        postgres / cognee / cognee-mcp / ollama
+├── docker-compose.yml        postgres / cognee / cognee-mcp / ollama / cognee-ui
 ├── .env.example              所有設定（LLM 二選一、embedding、secret）
 ├── docs/GUIDE.md             完整指南：設計理由、步驟、8 個實際踩到的坑、備份還原
 ├── scripts/
@@ -69,6 +69,7 @@ claude mcp add --transport http cognee http://<主機IP>:8001/mcp --scope user
 
 - **MCP endpoint 沒有驗證**：只能放在可信任的區網 / VPN，不要開到公網
 - **所有人透過同一個服務帳號寫入**：cognee-mcp 目前只能用 dataset 名稱，而名稱只在擁有者的 dataset 內解析（[#5619](https://github.com/topoteretes/cognee/issues/5619)），每人各用自己的帳號就無法共享
+- **Web UI**：`docker compose --profile ui up -d --no-deps cognee-ui` 後開 http://localhost:3000（僅主機本機，見 GUIDE §8.3）
 - **8B 本機模型品質有限**：有時中文問題會回英文答案。正式使用建議換 Gemini 或更大的模型
 
 詳見 [docs/GUIDE.md §2、§10](docs/GUIDE.md#2-為什麼這樣設計重要限制)。

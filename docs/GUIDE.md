@@ -54,6 +54,7 @@
 | `cognee` | `cognee/cognee:main` | Cognee 後端 API，**唯一**開啟 graph 檔案的 process；只綁 `127.0.0.1:8000` |
 | `cognee-mcp` | `cognee/cognee-mcp:main` | 對外的共用 MCP endpoint（`http://主機:8001/mcp`），以 API mode 轉送到後端 |
 | `ollama` | `ollama/ollama` | 本機 LLM（profile `ollama`，選用） |
+| `cognee-ui` | `cognee/cognee-ui` | 官方 Web UI（profile `ui`，選用，僅主機本機 `http://localhost:3000`） |
 
 ---
 
@@ -425,7 +426,32 @@ docker compose exec cognee python /poc-scripts/import_docs.py /poc-sample-data "
 | 建圖 | `POST /api/v1/cognify`（`{"datasets":["team_kb"],"run_in_background":false}`） |
 | 查詢 | `POST /api/v1/search`（`{"search_type":"CHUNKS","query":"...","datasets":["team_kb"]}`） |
 
-### 8.3 撤換 MCP 的 API key（例如懷疑外洩）
+### 8.3 Web UI（選用，管理員用）
+
+Cognee 有官方 Web UI（映像 `cognee/cognee-ui`，Next.js），可以瀏覽 dataset、看知識圖譜、在網頁上搜尋、管理 API key。本專案以 profile `ui` 提供：
+
+```powershell
+docker compose up -d cognee                       # 第一次加 UI 時要重建 cognee（多開了 3000 port）
+docker compose --profile ui up -d --no-deps cognee-ui
+```
+
+開 <http://localhost:3000>，用 `.env` 裡的 `KB_SERVICE_EMAIL` / `KB_SERVICE_PASSWORD` 登入，就會看到 MCP 寫入的 `team_kb`。
+
+| 頁面 | 用途 |
+|---|---|
+| Datasets | 瀏覽 dataset 與已上傳的資料、上傳檔案 |
+| Graph | 知識圖譜視覺化（實體 / 關係） |
+| Search | 網頁上直接查詢（同 recall / search） |
+| API Keys | 建立 / 刪除 API key |
+
+**設計重點與限制**
+
+- **為什麼用 `network_mode: service:cognee`**：UI 的 `COGNEE_BACKEND_URL` 同時給「瀏覽器」與「UI 容器內的 server route（如圖譜視覺化 `/api/visualize`）」使用。若 UI 是獨立容器，容器內的 `localhost:8000` 連不到後端；共用 cognee 的網路後，兩邊的 `localhost:8000` 都指向後端。也因此 UI 的 port 3000 是開在 `cognee` 服務上。
+- **只限主機本機使用**：瀏覽器會直接呼叫 `http://localhost:8000`，而後端刻意只綁 `127.0.0.1`。同事要用 UI 必須連後端，這等於把「無法關閉的註冊 API」也開出去 → POC 階段 UI 只給主機上的管理員用。
+- **登入頁預填的 `default_user@example.com` 登不進去是正常的**：本專案刻意不設 `DEFAULT_USER_PASSWORD`，避免有一組人人知道的超級使用者密碼（官方 compose 預設是 `default_password`）。
+- 實測：UI 啟動約 10 秒 healthy，瀏覽器到後端的登入請求（CORS）正常。CORS 預設已允許 `http://localhost:3000`；若改用其他網址開 UI，要在 `.env` 設 `CORS_ALLOWED_ORIGINS`。
+
+### 8.4 撤換 MCP 的 API key（例如懷疑外洩）
 
 ```powershell
 docker compose exec cognee python /poc-scripts/init_kb.py   # 產生新 key
@@ -435,7 +461,7 @@ docker compose up -d --no-deps cognee-mcp
 
 舊 key 可在 Swagger 用 `GET /api/v1/auth/api-keys` 查 id，再 `DELETE /api/v1/auth/api-keys/{id}` 刪除。
 
-### 8.4 備份
+### 8.5 備份
 
 狀態分散在**兩個地方**，缺一不可：
 
@@ -460,7 +486,7 @@ docker compose up -d --no-deps cognee-mcp
 
 `.env` 另外加密保存，不要和備份放一起。
 
-### 8.5 還原（破壞性，先在測試機演練）
+### 8.6 還原（破壞性，先在測試機演練）
 
 以下流程已實測：還原後服務帳號、API key、`team_kb` 都在，MCP `recall` 仍可正確回答。
 
@@ -473,12 +499,12 @@ docker compose up -d cognee
 docker compose up -d --no-deps cognee-mcp
 ```
 
-### 8.6 停止 / 重置
+### 8.7 停止 / 重置
 
 ```powershell
-docker compose --profile ollama stop      # 停止（保留資料）
-docker compose --profile ollama down      # 移除容器（保留 volume）
-docker compose --profile ollama down -v   # ⚠ 連同所有 volume 刪除 = 刪掉整個知識庫
+docker compose --profile ollama --profile ui stop      # 停止（保留資料）
+docker compose --profile ollama --profile ui down      # 移除容器（保留 volume）
+docker compose --profile ollama --profile ui down -v   # ⚠ 連同所有 volume 刪除 = 刪掉整個知識庫
 ```
 
 ---
